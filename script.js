@@ -584,8 +584,9 @@ function renderMainSidebar(mobile) {
     const isOpen = manualState !== undefined ? manualState : (shortSidebar || containsActive);
     return `
       <div class="nav-group ${isOpen ? "open" : ""}">
-        <button class="nav-group-label" data-action="toggle-sidebar-group" data-group="${esc(g)}" style="display:flex;align-items:center;justify-content:center;width:100%;background:none;border:none;cursor:pointer;padding:4px 12px 8px;">
-          <span style="display:flex;align-items:center;gap:6px;">${esc(g)} <span style="display:inline-flex;transition:transform 0.15s;transform:rotate(${isOpen ? "0" : "-90"}deg);">${iconChevronDown(11, SUBTLE)}</span></span>
+        <button class="nav-group-label" data-action="toggle-sidebar-group" data-group="${esc(g)}" style="display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;cursor:pointer;padding:4px 12px 8px;">
+          <span style="display:flex;align-items:center;gap:6px;">${sidebarNavIcon(items[0].icon, 13, SUBTLE)}${esc(g)}</span>
+          <span style="display:inline-flex;transition:transform 0.15s;transform:rotate(${isOpen ? "0" : "-90"}deg);">${iconChevronDown(11, SUBTLE)}</span>
         </button>
         ${isOpen ? `<div class="nav-list">
           ${items.map((p) => {
