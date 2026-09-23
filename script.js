@@ -1051,7 +1051,14 @@ function renderDashboard() {
     ${topBarHtml({ title: "لوحة المعلومات", subtitle: `مرحبًا ${esc(S.currentUser.name)} — نظرة شاملة على كل الوحدات` })}
 
     <div class="hero-banner">
-      <div class="prs-title" style="font-size:19px;font-weight:900;">مرحبًا بك في نظام توثيق الأداء</div>
+      <div class="hero-banner-row">
+        <img class="hero-banner-img" src="hero-bg.jpg" alt="" />
+        <div class="hero-banner-text">
+          <div class="hero-banner-eyebrow">مرحبًا بك في</div>
+          <div class="prs-title hero-banner-title">منصة التقارير</div>
+          <div class="hero-banner-sub">نحو تقارير أكثر دقة وتنظيمًا</div>
+        </div>
+      </div>
       <div class="search-bar">
         ${iconSearch(16, SUBTLE)}
         <input id="dashboard-search" class="search-input" placeholder="ابحث عن تقرير، قسم أو موظف..." />
