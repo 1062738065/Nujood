@@ -592,7 +592,7 @@ function renderMainSidebar(mobile) {
           ${items.map((p) => {
             const disabled = (p.scope === "unit" && !S.currentUnitId) || (p.scope === "unitreport" && !(S.currentUnitId && S.currentReportId));
             const active = S.view === p.id;
-            const iconColor = disabled ? "#cfc3c8" : active ? "#fff" : INK;
+            const iconColor = disabled ? "#cfc3c8" : active ? "#6b2337" : INK;
             return `<button class="nav-item ${active ? "active" : ""}" ${disabled ? "disabled" : ""} data-action="nav-to" data-view="${p.id}">${sidebarNavIcon(p.icon, 15, iconColor)}<span>${esc(p.label)}</span></button>`;
           }).join("")}
         </div>` : ""}
@@ -605,7 +605,7 @@ function renderMainSidebar(mobile) {
   const inner = `
     <div class="sidebar-head">
       <div class="sidebar-head-icons-row">
-        <div class="icon-badge">${iconGauge("#fff")}</div>
+        <div class="icon-badge">${iconGauge("#6b2337")}</div>
         <div style="display:flex;gap:6px;">
           <button class="sidebar-bell" title="الإشعارات">${iconBell(15, INK)}</button>
           <button class="icon-btn" data-action="${mobile ? "close-mobile-sidebar" : "close-sidebar"}" title="إغلاق القائمة">${iconX(14, INK)}</button>

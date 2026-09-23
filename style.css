@@ -4,7 +4,7 @@
 :root {
   --rose: #C24A6C;        /* primary (burgundy) — one consistent shade site-wide */
   --rose-dark: #9c3a56;   /* primary hover/active */
-  --blush-bg: #FAF5F6;    /* page background (warm off-white) */
+  --blush-bg: #F2ECE8;    /* page background (warm off-white) */
   --ink: #2E2430;         /* body text (dark warm charcoal) */
   --subtle: #9c8b92;      /* muted secondary text */
   --border: #eddde2;      /* light border */
@@ -19,7 +19,7 @@
   --blue: #8B4A73;         /* secondary accent (wine-purple) */
   --blue-bg: #f3e9ef;
   --sidebar-bg: #ffffff;
-  --sidebar-active: #6b2337;
+  --sidebar-active: #DDCCC2;
   --sidebar-text: var(--ink);
   --sidebar-text-subtle: var(--subtle);
 }
@@ -77,12 +77,12 @@ img { max-width: 100%; }
 }
 .sidebar-head-icons-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .sidebar-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.icon-badge { width: 30px; height: 30px; border-radius: 9px; background: #6b2337; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.icon-badge { width: 30px; height: 30px; border-radius: 9px; background: #DDCCC2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .sidebar-title { display: block; font-size: 15px; font-weight: 900; color: #6b2337; text-align: center; white-space: normal; line-height: 1.35; }
 .icon-btn { width: 28px; height: 28px; border-radius: 8px; border: none; background: #fdfbfa; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
 .sidebar .icon-btn { background: var(--gray-bg); }
-.sidebar-user-block { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px; }
-.sidebar-user-avatar { width: 36px; height: 36px; border-radius: 50%; background: #6b2337; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; flex-shrink: 0; }
+.sidebar-user-block { display: flex; align-items: center; gap: 10px; padding: 4px 6px 14px; }
+.sidebar-user-avatar { width: 36px; height: 36px; border-radius: 50%; background: #DDCCC2; color: #6b2337; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; flex-shrink: 0; }
 .sidebar-user-hello { font-size: 10.5px; color: var(--subtle); }
 .sidebar-user-name { font-size: 12.5px; font-weight: 800; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-bell { margin-right: auto; background: var(--gray-bg); border: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--ink); }
@@ -92,7 +92,7 @@ img { max-width: 100%; }
   display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: none;
   background: transparent; color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; text-align: right; width: 100%;
 }
-.nav-item.active { background: var(--sidebar-active); color: #fff; font-weight: 800; }
+.nav-item.active { background: var(--sidebar-active); color: #6b2337; font-weight: 800; }
 .nav-item:not(.active):not([disabled]):hover { background: var(--gray-bg); }
 .nav-item[disabled] { color: #cfc3c8; cursor: not-allowed; }
 .sidebar-tagline { font-family: 'Cairo', 'IBM Plex Sans Arabic', sans-serif; font-size: 14px; font-weight: 800; color: var(--rose); text-align: center; margin: 16px 0; line-height: 1.5; }
@@ -169,7 +169,7 @@ textarea.input { resize: vertical; line-height: 1.6; }
 }
 .hero-banner-bg {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; object-position: center 38%; z-index: 0;
+  object-fit: cover; object-position: center 62%; z-index: 0;
 }
 .hero-banner-text { position: relative; z-index: 2; margin-bottom: 18px; text-align: center; transform: translateX(-8%); }
 .hero-banner-eyebrow { font-size: 14px; font-weight: 600; color: #000; }
@@ -185,7 +185,7 @@ textarea.input { resize: vertical; line-height: 1.6; }
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: 460px;
+  max-width: 100%;
   position: relative;
   z-index: 2;
 }
