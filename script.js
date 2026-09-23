@@ -496,6 +496,10 @@ function render() {
     html = shellWrap(renderIndicatorsManage());
   } else if (S.view === "goals-manage") {
     html = shellWrap(renderGoalsManage());
+  } else if (S.view === "unit-dashboard") {
+    html = shellWrap(renderUnitDashboard());
+  } else if (S.view === "unit-settings") {
+    html = shellWrap(renderUnitSettings());
   } else if (S.view === "unit-reports") {
     html = shellWrap(renderUnitReportsHub());
   } else if (S.view === "unit-report") {
@@ -541,12 +545,15 @@ const SIDEBAR_PAGES = [
   { id: "executive-dashboard", label: "لوحة المعلومات", group: "الإدارة العليا", icon: "home" },
   { id: "executive-summary", label: "الملخص التنفيذي", group: "الإدارة العليا", icon: "document" },
   { id: "executive-final-report", label: "التقرير الإداري النهائي", group: "الإدارة العليا", icon: "layers" },
-  { id: "unit-reports", label: "تقاريري", group: "التقارير", scope: "unit", icon: "document" },
+  { id: "unit-dashboard", label: "لوحة المعلومات", group: "التقارير", scope: "unit", icon: "home" },
+  { id: "create-report-shortcut", label: "إنشاء تقرير", group: "التقارير", scope: "unit", icon: "plus" },
+  { id: "unit-reports", label: "جميع تقارير الوحدة", group: "التقارير", scope: "unit", icon: "document" },
   { id: "unit-report", label: "متابعة التقرير المفتوح", group: "التقارير", scope: "unitreport", icon: "pencil" },
+  { id: "unit-settings", label: "الإعدادات", group: "التقارير", scope: "unit", icon: "gauge" },
 ];
 const SIDEBAR_GROUPS = ["الرئيسية", "إدارة التقارير", "المستخدمون", "الأقسام", "الوحدات", "المراكز", "الإدارة العليا", "التقارير"];
 function sidebarNavIcon(key, size, color) {
-  const map = { home: iconHome, document: iconDocument, building: iconBuilding, gauge: iconGauge, target: iconTarget, pencil: iconPencil, layers: iconLayers, printer: iconPrinter };
+  const map = { home: iconHome, document: iconDocument, building: iconBuilding, gauge: iconGauge, target: iconTarget, pencil: iconPencil, layers: iconLayers, printer: iconPrinter, plus: iconPlus };
   const fn = map[key] || iconDocument;
   return key === "building" || key === "gauge" ? fn(color, size) : fn(size, color);
 }
@@ -556,7 +563,7 @@ function computeVisibleSidebarPages() {
   // is unit-scoped work, not site administration — admin and department-level
   // accounts only see it while actually inside a specific unit's pages, not on
   // their own overview page. A unit's own account always sees only this group.
-  const UNIT_SCOPED_VIEWS = ["unit-reports", "unit-report", "full-report", "report-preview"];
+  const UNIT_SCOPED_VIEWS = ["unit-dashboard", "unit-settings", "unit-reports", "unit-report", "full-report", "report-preview"];
   if (S.isAdmin) {
     // مديرة النظام تشوف كل شي بالموقع — بما فيها صفحات الإدارة العليا للاطلاع.
     return SIDEBAR_PAGES.filter((p) => p.id !== "department-overview" && (p.group !== "التقارير" || UNIT_SCOPED_VIEWS.includes(S.view)));
@@ -593,7 +600,8 @@ function renderMainSidebar(mobile) {
             const disabled = (p.scope === "unit" && !S.currentUnitId) || (p.scope === "unitreport" && !(S.currentUnitId && S.currentReportId));
             const active = S.view === p.id;
             const iconColor = disabled ? "#cfc3c8" : active ? "#6b2337" : INK;
-            return `<button class="nav-item ${active ? "active" : ""}" ${disabled ? "disabled" : ""} data-action="nav-to" data-view="${p.id}">${sidebarNavIcon(p.icon, 15, iconColor)}<span>${esc(p.label)}</span></button>`;
+            const isShortcut = p.id === "create-report-shortcut";
+            return `<button class="nav-item ${active ? "active" : ""}" ${disabled ? "disabled" : ""} data-action="${isShortcut ? "create-new-report" : "nav-to"}" ${isShortcut ? "" : `data-view="${p.id}"`}>${sidebarNavIcon(p.icon, 15, iconColor)}<span>${esc(p.label)}</span></button>`;
           }).join("")}
         </div>` : ""}
       </div>`;
@@ -859,7 +867,7 @@ function doLogin(user) {
     S.reports[unitId] = dataStore.getReports(unitId);
     S.currentUnitId = unitId;
     S.currentReportId = null;
-    S.view = "unit-reports";
+    S.view = "unit-dashboard";
   }
   render();
   if (sheetsConfigured()) {
@@ -1111,6 +1119,154 @@ function renderDashboard() {
       <div class="table-wrap"><table class="prs-table"><thead><tr style="background:${GREEN_BG}">
         <th style="color:${ROSE}">الوحدة</th><th style="color:${ROSE}">الهدف التشغيلي</th><th style="text-align:center;color:${ROSE}">المستوى</th><th style="text-align:center;color:${ROSE};width:70px">النسبة</th>
       </tr></thead><tbody>${goalsRows}</tbody></table></div>`}
+    </div>
+  </div></div>`;
+}
+
+/* =============================== Units overview (admin) ====================== */
+/* =============================== Unit dashboard (لوحة معلومات الوحدة) ========= */
+function renderUnitDashboard() {
+  const unit = S.units.find((u) => u.id === S.currentUnitId);
+  const dept = S.departments.find((d) => d.id === unit?.departmentId);
+  const reports = ensureUnitReportsLoaded(S.currentUnitId);
+  const report = latestReportForUnit(S.currentUnitId);
+  const progress = computeProgress(report);
+
+  const allIndicators = (report.sections?.kpi?.data?.indicators || []).filter((r) => r.name && r.name.trim());
+  const allGoals = [];
+  (report.sections?.goals?.data?.goals || []).forEach((g) => {
+    (g.operationalGoals || []).forEach((og) => allGoals.push({ ...og, strategicGoal: g.strategicGoal }));
+  });
+  const avgGoalPct = allGoals.length ? Math.round(allGoals.reduce((s, g) => s + (Number(g.percentage) || 0), 0) / allGoals.length) : 0;
+
+  const nowTs = Date.now(), weekMs = 7 * 24 * 60 * 60 * 1000;
+  const reportsThisWeek = reports.filter((r) => nowTs - r.createdAt <= weekMs).length;
+  const completedReportsCount = reports.filter((r) => r.status === "completed").length;
+  const underReviewReportsCount = reports.filter((r) => r.status === "under_review").length;
+  const draftReportsCount = reports.filter((r) => r.status === "draft").length;
+  const returnedReportsCount = reports.filter((r) => r.status === "returned").length;
+  const totalReportsPieHtml = svgPieChart([
+    { label: "مكتمل", value: completedReportsCount, color: GREEN },
+    { label: "قيد المراجعة", value: underReviewReportsCount, color: GOLD },
+    { label: "مسودة", value: draftReportsCount, color: BLUE },
+    { label: "إعادة للتعديل", value: returnedReportsCount, color: DANGER },
+  ], { size: 132 });
+
+  const statusCounts = { achieved: 0, close: 0, needsAction: 0, struggling: 0, noData: 0 };
+  allIndicators.forEach((ind) => {
+    const def = S.indicatorDefinitions.find((x) => x.name === ind.name);
+    const st = computeIndicatorStatus(resolveIndicatorRow(ind, def));
+    statusCounts[st.key] = (statusCounts[st.key] || 0) + 1;
+  });
+  const indicatorPieHtml = svgPieChart([
+    { label: "متحقق 🟢", value: statusCounts.achieved, color: GREEN },
+    { label: "قريب من المستهدف 🟡", value: statusCounts.close, color: GOLD },
+    { label: "يحتاج تدخلاً 🟠", value: statusCounts.needsAction, color: "#c9863a" },
+    { label: "متعثر 🔴", value: statusCounts.struggling, color: DANGER },
+    { label: "بلا بيانات ⚪", value: statusCounts.noData, color: SUBTLE },
+  ]);
+
+  const goalLevelCounts = {};
+  allGoals.forEach((g) => { if (g.level) goalLevelCounts[g.level] = (goalLevelCounts[g.level] || 0) + 1; });
+  const goalPieHtml = svgPieChart(GOAL_LEVELS.map((lvl) => ({ label: lvl, value: goalLevelCounts[lvl] || 0, color: goalLevelMeta(lvl).color })));
+
+  const indicatorsRows = allIndicators.map((ind) => {
+    const target = Number(ind.target) || 0, actual = Number(ind.actual) || 0;
+    const pct = target > 0 ? Math.round((actual / target) * 100) : 0;
+    const color = pct >= 100 ? GREEN : pct >= 60 ? GOLD : DANGER;
+    return `<tr><td style="font-weight:600">${esc(ind.name)}</td><td style="text-align:center">${esc(ind.target)}</td><td style="text-align:center">${esc(ind.actual)}</td><td style="text-align:center;font-weight:800;color:${color}">${pct}٪</td></tr>`;
+  }).join("");
+
+  const goalsRows = allGoals.map((g) => {
+    const meta = goalLevelMeta(g.level);
+    return `<tr><td style="font-weight:600">${esc(g.name)}</td><td style="text-align:center">${g.level ? badgeHtml(g.level, meta.color, meta.bg) : "—"}</td><td style="text-align:center;font-weight:800;color:${meta.color}">${g.percentage !== "" ? g.percentage + "٪" : "—"}</td></tr>`;
+  }).join("");
+
+  const recent = [...reports].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
+  const recentRows = recent.map((r) => {
+    const meta = reportStatusMeta(r.status);
+    const dateStr = new Date(r.createdAt).toLocaleDateString("ar-SA-u-ca-gregory", { year: "numeric", month: "2-digit", day: "2-digit" });
+    return `<tr data-search="${esc((r.label || "").toLowerCase())}">
+      <td>${badgeHtml(meta.label, meta.color, meta.bg)}</td>
+      <td style="color:${SUBTLE}">${esc(dateStr)}</td>
+      <td style="font-weight:700;cursor:pointer;" data-action="open-report" data-unit-id="${esc(unit.id)}" data-report-id="${esc(r.id)}">${esc(r.label)}</td>
+    </tr>`;
+  }).join("");
+
+  return `
+  <div class="page-wrap"><div class="page-inner">
+    ${topBarHtml({ title: "لوحة المعلومات", subtitle: `مرحبًا ${esc(S.currentUser.name)} — نظرة عامة على تقارير ${esc(unit.name)}` })}
+
+    <div class="hero-banner">
+      <img class="hero-banner-bg" src="hero-bg.jpg" alt="" />
+      <div class="hero-banner-text">
+        <div class="hero-banner-eyebrow">مرحبًا بك في</div>
+        <div class="prs-title hero-banner-title">منصة التقارير</div>
+        <div class="hero-banner-sub">نحو تقارير أكثر دقة وتنظيمًا</div>
+      </div>
+      <div class="search-bar">
+        ${iconSearch(16, SUBTLE)}
+        <input id="dashboard-search" class="search-input" placeholder="ابحثي عن تقرير..." />
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      ${statIconCardHtml("تقارير هذا الأسبوع", reportsThisWeek, iconCalendarSmall(18, ROSE), GREEN_BG)}
+      ${statIconCardHtml("تقرير مكتمل", completedReportsCount, iconCheckCircle(18, GREEN), GREEN_BG)}
+      ${statIconCardHtml("تقرير قيد المراجعة", underReviewReportsCount, iconDocument(18, GOLD), GOLD_BG)}
+      ${statIconCardHtml("إجمالي التقارير", reports.length, iconBuilding(ROSE, 18), BLUE_BG)}
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:18px;" class="dash-recent-grid">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div class="prs-title" style="font-size:14px;font-weight:800;">أحدث التقارير</div>
+          <button data-action="nav-to" data-view="unit-reports" style="background:none;border:none;cursor:pointer;color:${ROSE};font-size:11.5px;font-weight:700;display:flex;align-items:center;gap:4px;">${iconChevronLeft(13, ROSE)} عرض الكل</button>
+        </div>
+        ${recent.length === 0 ? `<div style="font-size:12.5px;color:${SUBTLE}">لا توجد تقارير بعد.</div>` :
+          `<div class="table-wrap"><table class="prs-table" id="recent-reports-table"><thead><tr style="background:${GRAY_BG}">
+            <th>الحالة</th><th>تاريخ الإعداد</th><th>اسم التقرير</th>
+          </tr></thead><tbody>${recentRows}</tbody></table></div>`}
+      </div>
+      <div class="card">
+        <div class="prs-title" style="font-size:13.5px;font-weight:800;margin-bottom:12px;">إجمالي التقارير</div>
+        ${totalReportsPieHtml}
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px;">
+      <div class="card"><div class="prs-title" style="font-size:13.5px;font-weight:800;margin-bottom:12px;">توزيع حالات المؤشرات</div>${indicatorPieHtml}</div>
+      <div class="card"><div class="prs-title" style="font-size:13.5px;font-weight:800;margin-bottom:12px;">توزيع مستويات تحقق الأهداف</div>${goalPieHtml}</div>
+    </div>
+    <div class="card" style="margin-bottom:18px;">
+      <div class="prs-title" style="font-size:14px;font-weight:800;margin-bottom:12px;">مؤشرات الأداء</div>
+      ${allIndicators.length === 0 ? `<div style="font-size:12.5px;color:${SUBTLE}">لا توجد مؤشرات مُدخلة بعد.</div>` : `
+      <div class="table-wrap"><table class="prs-table"><thead><tr style="background:${GOLD_BG}">
+        <th style="color:#8a6a35">المؤشر</th><th style="text-align:center;color:#8a6a35">المستهدف</th><th style="text-align:center;color:#8a6a35">المتحقق</th><th style="text-align:center;color:#8a6a35">النسبة</th>
+      </tr></thead><tbody>${indicatorsRows}</tbody></table></div>`}
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="prs-title" style="font-size:14px;font-weight:800;">الأهداف التشغيلية</div>
+        <span style="font-size:11px;color:${SUBTLE}">متوسط النسبة: ${avgGoalPct}٪</span>
+      </div>
+      ${allGoals.length === 0 ? `<div style="font-size:12.5px;color:${SUBTLE}">لا توجد أهداف مُدخلة بعد.</div>` : `
+      <div class="table-wrap"><table class="prs-table"><thead><tr style="background:${GREEN_BG}">
+        <th style="color:${ROSE}">الهدف التشغيلي</th><th style="text-align:center;color:${ROSE}">المستوى</th><th style="text-align:center;color:${ROSE};width:70px">النسبة</th>
+      </tr></thead><tbody>${goalsRows}</tbody></table></div>`}
+    </div>
+  </div></div>`;
+}
+
+/* =============================== Unit settings (stub) ========================= */
+function renderUnitSettings() {
+  return `
+  <div class="page-wrap"><div class="page-inner">
+    ${topBarHtml({ title: "الإعدادات" })}
+    <div class="card" style="text-align:center;color:${SUBTLE};padding:48px 20px;">
+      ${iconGauge(SUBTLE, 32)}
+      <div style="font-size:14px;font-weight:700;margin-top:12px;color:${INK}">قريبًا</div>
+      <div style="font-size:12px;margin-top:6px;">هذي الصفحة قيد الإعداد.</div>
     </div>
   </div></div>`;
 }
