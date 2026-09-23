@@ -519,7 +519,7 @@ function shellWrap(innerHtml) {
     <div class="app-shell">
       ${sidebarOpen ? renderMainSidebar(mobile) : ""}
       <div class="app-main">
-        ${!sidebarOpen ? `<div class="open-sidebar-wrap"><button class="mobile-menu-toggle" data-action="open-sidebar" title="فتح القائمة">${iconMenu()}</button></div>` : ""}
+        ${!sidebarOpen ? `<div class="open-sidebar-wrap"><button class="mobile-menu-toggle" data-action="open-sidebar" title="فتح القائمة">${iconMenu(INK)}</button></div>` : ""}
         ${innerHtml}
       </div>
     </div>
@@ -611,7 +611,7 @@ function renderMainSidebar(mobile) {
           <button class="icon-btn" data-action="${mobile ? "close-mobile-sidebar" : "close-sidebar"}" title="إغلاق القائمة">${iconX(14, INK)}</button>
         </div>
       </div>
-      <div class="prs-title sidebar-title">نظام توثيق الأداء</div>
+      <div class="prs-title sidebar-title">منصة التقارير</div>
     </div>
     <div class="sidebar-user-block">
       <div class="sidebar-user-avatar">${esc(initial)}</div>
@@ -624,7 +624,7 @@ function renderMainSidebar(mobile) {
     <div class="sidebar-spacer"></div>
     <div class="sidebar-sep"></div>
     ${S.isAdmin ? "" : `<div class="sidebar-tagline">تقارير دقيقة.. لأثر أكبر</div>`}
-    <button class="logout-btn" data-action="logout">${iconLogout(16, ROSE)} تسجيل الخروج</button>
+    <button class="logout-btn" data-action="logout">${iconLogout(16, "#6b2337")} تسجيل الخروج</button>
   `;
 
   if (!mobile) return `<div class="sidebar">${inner}</div>`;
@@ -1051,13 +1051,11 @@ function renderDashboard() {
     ${topBarHtml({ title: "لوحة المعلومات", subtitle: `مرحبًا ${esc(S.currentUser.name)} — نظرة شاملة على كل الوحدات` })}
 
     <div class="hero-banner">
-      <div class="hero-banner-row">
-        <img class="hero-banner-img" src="hero-bg.jpg" alt="" />
-        <div class="hero-banner-text">
-          <div class="hero-banner-eyebrow">مرحبًا بك في</div>
-          <div class="prs-title hero-banner-title">منصة التقارير</div>
-          <div class="hero-banner-sub">نحو تقارير أكثر دقة وتنظيمًا</div>
-        </div>
+      <img class="hero-banner-bg" src="hero-bg.jpg" alt="" />
+      <div class="hero-banner-text">
+        <div class="hero-banner-eyebrow">مرحبًا بك في</div>
+        <div class="prs-title hero-banner-title">منصة التقارير</div>
+        <div class="hero-banner-sub">نحو تقارير أكثر دقة وتنظيمًا</div>
       </div>
       <div class="search-bar">
         ${iconSearch(16, SUBTLE)}
