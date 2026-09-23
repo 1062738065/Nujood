@@ -214,8 +214,8 @@ function indDefToRow(d) { return { id: d.id, name: d.name, category: d.category 
 function rowToIndDef(r) { return { id: r.id, name: r.name, category: r.category || "", direction: r.direction || "", nature: r.nature || "", frequency: r.frequency || "", unit: r.unit || "", target: r.target || "", dataSource: r.data_source || "", calculationMethod: r.calculation_method || "" }; }
 function goalToRow(g, kind) { return { id: g.id, name: g.name, kind }; }
 function rowToGoal(r) { return { id: r.id, name: r.name }; }
-function reportToRow(unitId, r) { return { id: r.id, unit_id: unitId, label: r.label || "", status: r.status || "draft", created_at: r.createdAt || Date.now(), updated_at: r.updatedAt || Date.now(), shared: r.shared || {}, indicator_history: r.indicatorHistory || {}, sections: r.sections || {}, last_section_id: r.lastSectionId || "" }; }
-function rowToReport(r) { return { id: r.id, label: r.label || "", status: r.status || "draft", createdAt: Number(r.created_at) || 0, updatedAt: Number(r.updated_at) || 0, shared: r.shared || {}, indicatorHistory: r.indicator_history || {}, sections: r.sections || {}, lastSectionId: r.last_section_id || "" }; }
+function reportToRow(unitId, r) { return { id: r.id, unit_id: unitId, label: r.label || "", status: r.status || "draft", report_type: r.reportType || "general", created_at: r.createdAt || Date.now(), updated_at: r.updatedAt || Date.now(), shared: r.shared || {}, indicator_history: r.indicatorHistory || {}, sections: r.sections || {}, last_section_id: r.lastSectionId || "" }; }
+function rowToReport(r) { return { id: r.id, label: r.label || "", status: r.status || "draft", reportType: r.report_type || "general", createdAt: Number(r.created_at) || 0, updatedAt: Number(r.updated_at) || 0, shared: r.shared || {}, indicatorHistory: r.indicator_history || {}, sections: r.sections || {}, lastSectionId: r.last_section_id || "" }; }
 
 async function supabaseLogin(name, password) {
   const uRes = await supabaseRequest(`units?name=eq.${encodeURIComponent(name)}&password=eq.${encodeURIComponent(password)}&select=*&limit=1`);
@@ -380,9 +380,10 @@ function isUnitInUserScope(unitId) {
 }
 function pushReportMetaToSheet(unitId, entry) {
   if (!sheetsConfigured()) return;
-  // مع Supabase ما فيه حاجة لتقسيم التقرير — نرسله كاملًا (بكل أقسامه) بعملية
-  // واحدة (upsert)، بعكس جوجل شيت اللي احتجنا فيه نرسل كل قسم لحاله.
-  supabaseRequest("reports", { method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: JSON.stringify([reportToRow(unitId, entry)]) }).catch(() => {});
+  callSheetsApi("saveReportMeta", { unitId, report: {
+    id: entry.id, label: entry.label, status: entry.status, reportType: entry.reportType || "general", createdAt: entry.createdAt, updatedAt: entry.updatedAt,
+    shared: entry.shared || {}, indicatorHistory: entry.indicatorHistory || {}, lastSectionId: entry.lastSectionId || "",
+  } }).catch(() => {});
 }
 function saveReportEntry(unitId, updatedEntry) {
   const list = ensureUnitReportsLoaded(unitId).map((r) => (r.id === updatedEntry.id ? updatedEntry : r));
@@ -390,19 +391,35 @@ function saveReportEntry(unitId, updatedEntry) {
   dataStore.saveReports(unitId, list);
   pushReportMetaToSheet(unitId, updatedEntry);
 }
-function createNewReportEntry(unitId) {
+function createNewReportEntry(unitId, reportType) {
   const list = ensureUnitReportsLoaded(unitId);
-  const entry = { id: uid("rep"), label: `تقرير ${list.length + 1}`, status: "draft", createdAt: Date.now(), updatedAt: Date.now(), sections: {}, shared: {}, indicatorHistory: {} };
+  const entry = { id: uid("rep"), label: `تقرير ${list.length + 1}`, status: "draft", reportType: reportType || "general", createdAt: Date.now(), updatedAt: Date.now(), sections: {}, shared: {}, indicatorHistory: {} };
   S.reports[unitId] = [...list, entry];
   dataStore.saveReports(unitId, S.reports[unitId]);
   pushReportMetaToSheet(unitId, entry);
   return entry;
 }
 function reportStatusMeta(status) {
+  if (status === "approved") return { label: "معتمد", color: "#6b3fa0", bg: "#efe6f7" };
   if (status === "completed") return { label: "مكتمل", color: GREEN, bg: GREEN_BG };
-  if (status === "under_review") return { label: "قيد المراجعة", color: GOLD, bg: GOLD_BG };
-  if (status === "returned") return { label: "إعادة للتعديل", color: DANGER, bg: DANGER_BG };
+  if (status === "under_review") return { label: "بانتظار المراجعة", color: GOLD, bg: GOLD_BG };
+  if (status === "needs_completion") return { label: "بحاجة إلى استكمال", color: "#c9863a", bg: "#faf0e3" };
+  if (status === "returned") return { label: "بحاجة إلى تعديل", color: DANGER, bg: DANGER_BG };
   return { label: "مسودة", color: BLUE, bg: BLUE_BG };
+}
+const REPORT_TYPES = [
+  { id: "general", label: "عام", icon: "document" },
+  { id: "volunteer", label: "تطوع", icon: "heart" },
+  { id: "supervision", label: "إشراف تربوي", icon: "book" },
+  { id: "training", label: "تدريب", icon: "graduationCap" },
+];
+function reportTypeMeta(typeId) {
+  return REPORT_TYPES.find((t) => t.id === typeId) || REPORT_TYPES[0];
+}
+function reportTypeIconHtml(typeId, size, color) {
+  const map = { document: iconDocument, heart: iconHeart, book: iconBook, graduationCap: iconGraduationCap };
+  const fn = map[reportTypeMeta(typeId).icon] || iconDocument;
+  return fn(size, color);
 }
 
 /* =============================== Helpers ==================================== */
@@ -653,6 +670,10 @@ const iconLogout = (s, c) => svgIcon(`<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1
 const iconGauge = (c, s) => svgIcon(`<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M12 2a10 10 0 0 0-8.66 15L6 15"/><path d="M12 12l4-4"/>`, s || 14, c || GOLD);
 const iconBuilding = (c, s) => svgIcon(`<rect x="4" y="2" width="16" height="20" rx="1"/><line x1="9" y1="7" x2="9" y2="7"/><line x1="9" y1="11" x2="9" y2="11"/><line x1="9" y1="15" x2="9" y2="15"/><line x1="15" y1="7" x2="15" y2="7"/><line x1="15" y1="11" x2="15" y2="11"/><line x1="15" y1="15" x2="15" y2="15"/>`, s || 16, c || ROSE);
 const iconPlus = (s, c) => svgIcon(`<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>`, s || 15, c);
+const iconHeart = (s, c) => svgIcon(`<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/>`, s || 15, c);
+const iconBook = (s, c) => svgIcon(`<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>`, s || 15, c);
+const iconGraduationCap = (s, c) => svgIcon(`<path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>`, s || 15, c);
+const iconArchive = (s, c) => svgIcon(`<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="13" x2="14" y2="13"/>`, s || 15, c);
 const iconTrash = (s, c) => svgIcon(`<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`, s || 14, c || DANGER);
 const iconPencil = (s, c) => svgIcon(`<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>`, s || 14, c || INK);
 const iconPower = (s, c) => svgIcon(`<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>`, s || 14, c);
@@ -1857,28 +1878,65 @@ function renderAllReports() {
 }
 
 /* =============================== Unit reports hub: "منصة توثيق الأداء" ======== */
+function isReportArchived(report) {
+  const endDate = report.sections?.basic?.data?.endDate;
+  if (!endDate) return false;
+  const end = new Date(endDate).getTime();
+  return !isNaN(end) && end < Date.now();
+}
 function reportCardHtml(unit, entry) {
   const meta = reportStatusMeta(entry.status);
+  const typeMeta = reportTypeMeta(entry.reportType);
   const progress = computeProgress(entry);
   const dateStr = new Date(entry.createdAt).toLocaleDateString("ar-SA-u-ca-islamic", { year: "numeric", month: "long", day: "numeric" });
   const confirming = S.ui.confirmDeleteReportId === entry.id;
-  return `
-  <div class="card prs-card">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
-      <div><div style="font-size:14px;font-weight:800;">${esc(entry.label || "تقرير")}</div><div style="font-size:10.5px;color:${SUBTLE};margin-top:2px;">${esc(dateStr)}</div></div>
-      ${badgeHtml(meta.label, meta.color, meta.bg)}
-    </div>
-    <div style="margin-bottom:10px;">${progressBarHtml(progress.percent, meta.color)}<div style="font-size:10.5px;color:${SUBTLE};margin-top:4px;">${progress.completed} من ${progress.total} أقسام مكتملة</div></div>
-    ${confirming ? `
+  const showNotes = S.ui.showReportNotesId === entry.id;
+  const managerNotes = entry.sections?.review?.data?.managerNotesText || "";
+
+  let actionsHtml;
+  if (confirming) {
+    actionsHtml = `
       <div class="hint bad" style="margin-bottom:8px;">حذف هذا التقرير نهائي ولا يمكن التراجع عنه.</div>
       <div style="display:flex;gap:6px;">
         ${pillBtn("تأكيد الحذف", { variant: "danger", icon: iconTrash(14, "#fff"), action: "delete-report", data: { unitId: unit.id, reportId: entry.id } })}
         ${pillBtn("إلغاء", { variant: "ghost", action: "cancel-delete-report" })}
-      </div>` : `
-      <div style="display:flex;gap:6px;">
-        ${pillBtn("فتح", { variant: "ghost", icon: iconChevronLeft(14, ROSE), action: "open-report", data: { unitId: unit.id, reportId: entry.id } })}
-        <button class="icon-btn" style="border:1px solid ${BORDER}" data-action="confirm-delete-report" data-id="${entry.id}" title="حذف التقرير">${iconTrash(14, DANGER)}</button>
-      </div>`}
+      </div>`;
+  } else if (entry.status === "draft") {
+    actionsHtml = `<div style="display:flex;gap:6px;">
+      <button class="icon-btn" style="border:1px solid ${BORDER}" data-action="confirm-delete-report" data-id="${entry.id}" title="حذف التقرير">${iconTrash(14, DANGER)}</button>
+      ${pillBtn("معاينة", { variant: "ghost", icon: iconEye(14, INK), action: "open-report", data: { unitId: unit.id, reportId: entry.id } })}
+      ${pillBtn("تعديل", { icon: iconPencil(14, "#fff"), action: "open-report", data: { unitId: unit.id, reportId: entry.id } })}
+    </div>`;
+  } else if (entry.status === "under_review") {
+    actionsHtml = `<div style="display:flex;gap:6px;">
+      ${pillBtn("معاينة", { variant: "ghost", icon: iconEye(14, INK), action: "open-report", data: { unitId: unit.id, reportId: entry.id } })}
+      ${pillBtn("عرض التفاصيل", { variant: "ghost", icon: iconChevronLeft(14, ROSE), action: "open-report", data: { unitId: unit.id, reportId: entry.id } })}
+    </div>`;
+  } else if (entry.status === "returned" || entry.status === "needs_completion") {
+    actionsHtml = `<div style="display:flex;flex-direction:column;gap:6px;">
+      ${managerNotes ? `<button class="pill-btn pill-ghost" data-action="toggle-report-notes" data-id="${entry.id}" style="width:100%;">${iconEye(14, INK)} ${showNotes ? "إخفاء الملاحظات" : "عرض الملاحظات"}</button>` : ""}
+      ${showNotes ? `<div class="hint" style="text-align:right;">${esc(managerNotes)}</div>` : ""}
+      ${pillBtn(entry.status === "returned" ? "إعادة التعديل" : "استكمال التقرير", { icon: iconPencil(14, "#fff"), action: "open-report", data: { unitId: unit.id, reportId: entry.id } })}
+    </div>`;
+  } else {
+    // مكتمل أو معتمد
+    actionsHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+      ${pillBtn("عرض", { variant: "ghost", icon: iconChevronLeft(14, ROSE), action: "view-report-pdf", data: { unitId: unit.id, reportId: entry.id } })}
+      ${pillBtn("تنزيل PDF", { variant: "ghost", icon: iconDownload(14, INK), action: "view-report-pdf", data: { unitId: unit.id, reportId: entry.id } })}
+    </div>`;
+  }
+
+  return `
+  <div class="card prs-card">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:30px;height:30px;border-radius:9px;background:${DANGER_BG};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${reportTypeIconHtml(entry.reportType, 14, ROSE)}</div>
+        <div><div style="font-size:14px;font-weight:800;">${esc(entry.label || "تقرير")}</div><div style="font-size:10.5px;color:${SUBTLE};margin-top:2px;">${esc(dateStr)}</div></div>
+      </div>
+      ${badgeHtml(meta.label, meta.color, meta.bg)}
+    </div>
+    <div style="margin-bottom:10px;">${progressBarHtml(progress.percent, meta.color)}<div style="font-size:10.5px;color:${SUBTLE};margin-top:4px;">${progress.completed} من ${progress.total} أقسام مكتملة</div></div>
+    ${actionsHtml}
   </div>`;
 }
 
@@ -1888,14 +1946,48 @@ function renderUnitReportsHub() {
   const dept = S.departments.find((d) => d.id === unit.departmentId);
   const list = ensureUnitReportsLoaded(unit.id);
   const filter = S.ui.unitReportsFilter || "all";
+  const typeFilter = S.ui.unitReportsTypeFilter || "";
+  const yearFilter = S.ui.unitReportsYearFilter || "";
+  const periodFilter = S.ui.unitReportsPeriodFilter || "";
+
   const tabs = [
     { id: "all", label: "الكل" },
-    { id: "completed", label: "مكتمل" },
-    { id: "draft", label: "مسودة" },
-    { id: "returned", label: "إعادة للتعديل" },
+    { id: "draft", label: "مسوداتي" },
+    { id: "returned", label: "بحاجة إلى تعديل" },
+    { id: "needs_completion", label: "بحاجة إلى استكمال" },
+    { id: "under_review", label: "التقارير المرسلة" },
+    { id: "completed", label: "التقارير الكاملة" },
+    { id: "approved", label: "معتمد" },
+    { id: "archived", label: "أرشيف التقارير" },
   ];
-  const filtered = filter === "all" ? list : list.filter((r) => r.status === filter);
+  const countFor = (id) => {
+    if (id === "all") return list.filter((r) => !isReportArchived(r)).length;
+    if (id === "archived") return list.filter((r) => isReportArchived(r)).length;
+    return list.filter((r) => r.status === id && !isReportArchived(r)).length;
+  };
+
+  let filtered = filter === "all" ? list.filter((r) => !isReportArchived(r))
+    : filter === "archived" ? list.filter((r) => isReportArchived(r))
+    : list.filter((r) => r.status === filter && !isReportArchived(r));
+  if (typeFilter) filtered = filtered.filter((r) => (r.reportType || "general") === typeFilter);
+  if (yearFilter) filtered = filtered.filter((r) => (r.sections?.basic?.data?.hijriYear || "") === yearFilter);
+  if (periodFilter) filtered = filtered.filter((r) => (r.sections?.basic?.data?.periodType || "") === periodFilter);
   const sorted = [...filtered].sort((a, b) => b.createdAt - a.createdAt);
+
+  const yearOptions = [...new Set(list.map((r) => r.sections?.basic?.data?.hijriYear).filter(Boolean))];
+  const periodOptions = [...new Set(list.map((r) => r.sections?.basic?.data?.periodType).filter(Boolean))];
+
+  const typePicker = S.ui.showCreateReportPicker ? `
+    <div class="card" style="margin-bottom:16px;border:1.5px solid ${ROSE};">
+      <div style="font-size:13px;font-weight:800;margin-bottom:10px;">اختاري نوع التقرير</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        ${REPORT_TYPES.map((t) => `<button class="pill-btn ${S.ui.newReportType === t.id ? "pill-primary" : "pill-ghost"}" data-action="pick-report-type" data-type="${t.id}">${reportTypeIconHtml(t.id, 14, S.ui.newReportType === t.id ? "#fff" : ROSE)} ${esc(t.label)}</button>`).join("")}
+      </div>
+      <div style="display:flex;gap:8px;">
+        ${pillBtn("إنشاء التقرير", { icon: iconPlus(15, "#fff"), action: "confirm-create-report" })}
+        ${pillBtn("إلغاء", { variant: "ghost", action: "cancel-create-report-picker" })}
+      </div>
+    </div>` : "";
 
   return `
   <div class="page-wrap"><div class="page-inner">
@@ -1903,19 +1995,34 @@ function renderUnitReportsHub() {
       backAction: S.isAdmin && S.adminPreviewOrigin ? "nav-to" : S.isAdmin ? "nav-back-admin" : S.isDepartmentUser ? "nav-back-department" : "",
       backData: S.isAdmin && S.adminPreviewOrigin ? { view: S.adminPreviewOrigin } : undefined,
       right: pillBtn("إنشاء تقرير", { icon: iconPlus(15, "#fff"), action: "create-new-report" }) })}
-    <div class="card" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-      <div style="width:36px;height:36px;border-radius:10px;background:${GREEN_BG};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${iconLayers(17, GREEN)}</div>
-      <div>
-        <div style="font-size:10.5px;color:${SUBTLE};">الأقسام والوحدات</div>
-        <div style="font-size:13px;font-weight:800;">${esc(unit.name)} ${dept ? `— ${esc(dept.name)}` : "(بدون قسم)"}</div>
+
+    <div class="hero-banner">
+      <img class="hero-banner-bg" src="hero-bg.jpg" alt="" />
+      <div class="hero-banner-text">
+        <div class="hero-banner-eyebrow">إدارة تقاريرك بسهولة وتنظيم</div>
+        <div class="prs-title hero-banner-title">التقارير</div>
+        <div class="hero-banner-sub">معًا نحو أثر أعظم..</div>
       </div>
     </div>
-    <div style="font-size:13px;font-weight:800;color:${ROSE};margin:6px 0 10px;">تقاريري</div>
+
+    ${typePicker}
+
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-      ${tabs.map((t) => `<button class="pill-btn ${filter === t.id ? "pill-primary" : "pill-ghost"}" data-action="set-unit-reports-filter" data-filter="${t.id}">${esc(t.label)} (${t.id === "all" ? list.length : list.filter((r) => r.status === t.id).length})</button>`).join("")}
+      ${tabs.map((t) => `<button class="pill-btn ${filter === t.id ? "pill-primary" : "pill-ghost"}" data-action="set-unit-reports-filter" data-filter="${t.id}">${esc(t.label)} (${countFor(t.id)})</button>`).join("")}
     </div>
-    ${sorted.length === 0 ? `<div class="card" style="text-align:center;color:${SUBTLE};padding:36px;">لا توجد تقارير مطابقة — ابدئي بإنشاء تقرير جديد من الزر أعلاه.</div>` :
-      `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">${sorted.map((entry) => reportCardHtml(unit, entry)).join("")}</div>`}
+
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input id="unit-reports-search" class="input" style="flex:2;min-width:180px;" placeholder="ابحثي باسم التقرير..." />
+        <select class="input" style="flex:1;min-width:120px;" data-action="filter-unit-reports-type"><option value="">النوع: الكل</option>${REPORT_TYPES.map((t) => `<option value="${t.id}" ${typeFilter === t.id ? "selected" : ""}>${esc(t.label)}</option>`).join("")}</select>
+        <select class="input" style="flex:1;min-width:110px;" data-action="filter-unit-reports-year"><option value="">السنة: الكل</option>${yearOptions.map((y) => `<option value="${esc(y)}" ${yearFilter === y ? "selected" : ""}>${esc(y)}</option>`).join("")}</select>
+        <select class="input" style="flex:1;min-width:110px;" data-action="filter-unit-reports-period"><option value="">الفترة: الكل</option>${periodOptions.map((p) => `<option value="${esc(p)}" ${periodFilter === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
+      </div>
+    </div>
+    <div style="font-size:12px;color:${SUBTLE};margin-bottom:10px;">عدد التقارير: ${sorted.length}</div>
+
+    ${sorted.length === 0 ? `<div class="card" style="text-align:center;color:${SUBTLE};padding:36px;">لا توجد تقارير مطابقة${filter === "all" ? " — ابدئي بإنشاء تقرير جديد من الزر أعلاه." : "."}</div>` :
+      `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;" id="unit-reports-grid">${sorted.map((entry) => `<div data-search="${esc((entry.label || "").toLowerCase())}">${reportCardHtml(unit, entry)}</div>`).join("")}</div>`}
   </div></div>`;
 }
 
@@ -2542,14 +2649,19 @@ function sectionEditorHtml(unit, report) {
       ${pillBtn("السابق", { variant: "ghost", action: "section-prev", disabled: sectionIndex <= 0 })}
       <div style="flex:1;">${pillBtn(S.sectionSaveStatus || "حفظ كمسودة", { variant: "soft", icon: iconSave(15, GREEN), action: "section-save-draft" })}</div>
       ${sectionIndex >= SECTIONS.length - 1
-        ? (report.status === "draft" || report.status === "returned"
+        ? (report.status === "draft" || report.status === "returned" || report.status === "needs_completion"
             ? pillBtn("إرسال للمراجعة", { icon: iconCheckCircle(15, "#fff"), action: "submit-report-for-review" })
             : report.status === "under_review"
-            ? `<div style="display:flex;gap:8px;">
+            ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">
                  ${pillBtn("اعتماد كمكتمل", { icon: iconCheckCircle(15, "#fff"), action: "mark-report-completed" })}
+                 ${(S.isAdmin || S.isDepartmentUser) ? pillBtn("طلب استكمال", { variant: "soft", icon: iconDocument(14, "#c9863a"), action: "request-report-completion" }) : ""}
                  ${(S.isAdmin || S.isDepartmentUser) ? pillBtn("إعادة للتعديل", { variant: "danger", icon: iconX(14, DANGER), action: "return-report-for-revision" }) : ""}
                </div>`
-            : pillBtn("مكتمل ✓", { variant: "soft", icon: iconCheckCircle(15, GREEN), disabled: true }))
+            : report.status === "completed"
+            ? ((S.isAdmin || S.isDepartmentUser)
+                ? pillBtn("اعتماد التقرير", { icon: iconCheckCircle(15, "#fff"), action: "approve-report" })
+                : pillBtn("مكتمل — بانتظار الاعتماد", { variant: "soft", icon: iconCheckCircle(15, GREEN), disabled: true }))
+            : pillBtn("معتمد ✓", { variant: "soft", icon: iconCheckCircle(15, "#6b3fa0"), disabled: true }))
         : `<button class="next-btn" data-action="section-next">التالي ${iconChevronLeft(15, "#fff")}</button>`}
     </div>
   </div>`;
@@ -3592,6 +3704,12 @@ function attachFormListeners() {
       rows.forEach((row) => { row.style.display = !q || (row.dataset.search || "").includes(q) ? "" : "none"; });
       return;
     }
+    if (el.id === "unit-reports-search") {
+      const q = el.value.trim().toLowerCase();
+      const cards = document.querySelectorAll("#unit-reports-grid > [data-search]");
+      cards.forEach((card) => { card.style.display = !q || (card.dataset.search || "").includes(q) ? "" : "none"; });
+      return;
+    }
     if (el.id === "login-username") { S.ui.loginUsernameVal = el.value; return; }
     if (el.id === "login-password") { S.ui.loginPasswordVal = el.value; return; }
     if (el.dataset && el.dataset.field && el.tagName !== "SELECT") {
@@ -3608,6 +3726,9 @@ function attachFormListeners() {
   appEl.addEventListener("change", (e) => {
     const el = e.target;
     if (el.dataset && el.dataset.action === "filter-all-reports-dept") { S.ui.allReportsDept = el.value; render(); return; }
+    if (el.dataset && el.dataset.action === "filter-unit-reports-type") { S.ui.unitReportsTypeFilter = el.value; render(); return; }
+    if (el.dataset && el.dataset.action === "filter-unit-reports-year") { S.ui.unitReportsYearFilter = el.value; render(); return; }
+    if (el.dataset && el.dataset.action === "filter-unit-reports-period") { S.ui.unitReportsPeriodFilter = el.value; render(); return; }
     if (el.dataset && el.dataset.action === "filter-all-reports-unit") { S.ui.allReportsUnit = el.value; render(); return; }
     if (el.dataset && el.dataset.action === "filter-all-reports-date-from") { S.ui.allReportsDateFrom = el.value; render(); return; }
     if (el.dataset && el.dataset.action === "filter-all-reports-date-to") { S.ui.allReportsDateTo = el.value; render(); return; }
@@ -3739,6 +3860,7 @@ function attachClickListener() {
       case "logout": doLogout(); break;
       case "confirm-delete-report": S.ui.confirmDeleteReportId = ds.id; render(); break;
       case "cancel-delete-report": S.ui.confirmDeleteReportId = null; render(); break;
+      case "toggle-report-notes": S.ui.showReportNotesId = S.ui.showReportNotesId === ds.id ? null : ds.id; render(); break;
       case "delete-report": {
         const unitId = ds.unitId, reportId = ds.reportId;
         S.reports[unitId] = dataStore.deleteOneReport(unitId, reportId);
@@ -3777,7 +3899,26 @@ function attachClickListener() {
       }
       case "set-unit-reports-filter": S.ui.unitReportsFilter = ds.filter; render(); break;
       case "create-new-report": {
-        const entry = createNewReportEntry(S.currentUnitId);
+        // نعرض اختيار نوع التقرير أولًا بدل الإنشاء الفوري.
+        S.view = "unit-reports";
+        S.ui.showCreateReportPicker = true;
+        S.ui.newReportType = "general";
+        render();
+        break;
+      }
+      case "pick-report-type": {
+        S.ui.newReportType = ds.type;
+        render();
+        break;
+      }
+      case "cancel-create-report-picker": {
+        S.ui.showCreateReportPicker = false;
+        render();
+        break;
+      }
+      case "confirm-create-report": {
+        const entry = createNewReportEntry(S.currentUnitId, S.ui.newReportType || "general");
+        S.ui.showCreateReportPicker = false;
         S.currentReportId = entry.id; S.view = "unit-report"; S.openPhaseId = null; S.activeSectionId = null;
         render();
         break;
@@ -3806,6 +3947,20 @@ function attachClickListener() {
       case "mark-report-completed": {
         const entry = getCurrentReportEntry();
         if (entry) saveReportEntry(S.currentUnitId, { ...entry, status: "completed", updatedAt: Date.now() });
+        render();
+        break;
+      }
+      case "request-report-completion": {
+        if (!(S.isDepartmentUser || S.isAdmin)) break;
+        const entry = getCurrentReportEntry();
+        if (entry) saveReportEntry(S.currentUnitId, { ...entry, status: "needs_completion", updatedAt: Date.now() });
+        render();
+        break;
+      }
+      case "approve-report": {
+        if (!(S.isDepartmentUser || S.isAdmin)) break;
+        const entry = getCurrentReportEntry();
+        if (entry && entry.status === "completed") saveReportEntry(S.currentUnitId, { ...entry, status: "approved", updatedAt: Date.now() });
         render();
         break;
       }
