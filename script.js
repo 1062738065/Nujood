@@ -206,16 +206,16 @@ async function supabaseReplaceTable(table, rows) {
 }
 
 /* ---- تحويل الأشكال بين JS (camelCase) وأعمدة قاعدة البيانات (snake_case) ---- */
-function unitToRow(u) { return { id: u.id, name: u.name, password: u.password || "", role: u.role || "unit", department_id: u.departmentId || "", status: u.status || "active", created_at: u.createdAt || Date.now() }; }
-function rowToUnit(r) { return { id: r.id, name: r.name, password: r.password || "", role: r.role || "unit", departmentId: r.department_id || "", status: r.status || "active", createdAt: Number(r.created_at) || 0 }; }
-function deptToRow(d) { return { id: d.id, name: d.name, password: d.password || "", status: d.status || "active", created_at: d.createdAt || Date.now(), curation: d.curation || { approvedKeys: [] } }; }
-function rowToDept(r) { return { id: r.id, name: r.name, password: r.password || "", status: r.status || "active", createdAt: Number(r.created_at) || 0, curation: r.curation || { approvedKeys: [] } }; }
+function unitToRow(u) { return { id: u.id, name: u.name, password: u.password || "", role: u.role || "unit", department_id: u.departmentId || "", status: u.status || "active", created_at: u.createdAt || Date.now(), email: u.email || "" }; }
+function rowToUnit(r) { return { id: r.id, name: r.name, password: r.password || "", role: r.role || "unit", departmentId: r.department_id || "", status: r.status || "active", createdAt: Number(r.created_at) || 0, email: r.email || "" }; }
+function deptToRow(d) { return { id: d.id, name: d.name, password: d.password || "", status: d.status || "active", created_at: d.createdAt || Date.now(), curation: d.curation || { approvedKeys: [] }, email: d.email || "" }; }
+function rowToDept(r) { return { id: r.id, name: r.name, password: r.password || "", status: r.status || "active", createdAt: Number(r.created_at) || 0, curation: r.curation || { approvedKeys: [] }, email: r.email || "" }; }
 function indDefToRow(d) { return { id: d.id, name: d.name, category: d.category || "", direction: d.direction || "", nature: d.nature || "", frequency: d.frequency || "", unit: d.unit || "", target: String(d.target ?? ""), data_source: d.dataSource || "", calculation_method: d.calculationMethod || "" }; }
 function rowToIndDef(r) { return { id: r.id, name: r.name, category: r.category || "", direction: r.direction || "", nature: r.nature || "", frequency: r.frequency || "", unit: r.unit || "", target: r.target || "", dataSource: r.data_source || "", calculationMethod: r.calculation_method || "" }; }
 function goalToRow(g, kind) { return { id: g.id, name: g.name, kind }; }
 function rowToGoal(r) { return { id: r.id, name: r.name }; }
-function reportToRow(unitId, r) { return { id: r.id, unit_id: unitId, label: r.label || "", status: r.status || "draft", report_type: r.reportType || "general", created_at: r.createdAt || Date.now(), updated_at: r.updatedAt || Date.now(), shared: r.shared || {}, indicator_history: r.indicatorHistory || {}, sections: r.sections || {}, last_section_id: r.lastSectionId || "" }; }
-function rowToReport(r) { return { id: r.id, label: r.label || "", status: r.status || "draft", reportType: r.report_type || "general", createdAt: Number(r.created_at) || 0, updatedAt: Number(r.updated_at) || 0, shared: r.shared || {}, indicatorHistory: r.indicator_history || {}, sections: r.sections || {}, lastSectionId: r.last_section_id || "" }; }
+function reportToRow(unitId, r) { return { id: r.id, unit_id: unitId, label: r.label || "", status: r.status || "draft", report_type: r.reportType || "general", created_at: r.createdAt || Date.now(), updated_at: r.updatedAt || Date.now(), shared: r.shared || {}, indicator_history: r.indicatorHistory || {}, sections: r.sections || {}, last_section_id: r.lastSectionId || "", sent_to: r.sentTo || null, sent_at: r.sentAt || null }; }
+function rowToReport(r) { return { id: r.id, label: r.label || "", status: r.status || "draft", reportType: r.report_type || "general", createdAt: Number(r.created_at) || 0, updatedAt: Number(r.updated_at) || 0, shared: r.shared || {}, indicatorHistory: r.indicator_history || {}, sections: r.sections || {}, lastSectionId: r.last_section_id || "", sentTo: r.sent_to || null, sentAt: r.sent_at ? Number(r.sent_at) : null }; }
 
 async function supabaseLogin(name, password) {
   const uRes = await supabaseRequest(`units?name=eq.${encodeURIComponent(name)}&password=eq.${encodeURIComponent(password)}&select=*&limit=1`);
@@ -378,12 +378,12 @@ function isUnitInUserScope(unitId) {
   if (S.isDepartmentUser) return unit.departmentId === S.currentDepartmentId;
   return unit.id === S.currentUnitId;
 }
+// يرفع بيانات التقرير فعليًا لقاعدة Supabase (upsert بمفتاح id) — كانت هذي
+// الدالة قديمًا خاصة بجوجل شيت فقط وما تحدّثت وقت التحويل لـ Supabase، فكانت
+// التقارير تُحفظ محليًا بس وما توصل لقاعدة البيانات الحقيقية إطلاقًا. صُلّحت.
 function pushReportMetaToSheet(unitId, entry) {
   if (!sheetsConfigured()) return;
-  callSheetsApi("saveReportMeta", { unitId, report: {
-    id: entry.id, label: entry.label, status: entry.status, reportType: entry.reportType || "general", createdAt: entry.createdAt, updatedAt: entry.updatedAt,
-    shared: entry.shared || {}, indicatorHistory: entry.indicatorHistory || {}, lastSectionId: entry.lastSectionId || "",
-  } }).catch(() => {});
+  supabaseRequest("reports", { method: "POST", prefer: "return=minimal,resolution=merge-duplicates", body: JSON.stringify(reportToRow(unitId, entry)) }).catch(() => {});
 }
 function saveReportEntry(unitId, updatedEntry) {
   const list = ensureUnitReportsLoaded(unitId).map((r) => (r.id === updatedEntry.id ? updatedEntry : r));
@@ -391,9 +391,9 @@ function saveReportEntry(unitId, updatedEntry) {
   dataStore.saveReports(unitId, list);
   pushReportMetaToSheet(unitId, updatedEntry);
 }
-function createNewReportEntry(unitId, reportType) {
+function createNewReportEntry(unitId) {
   const list = ensureUnitReportsLoaded(unitId);
-  const entry = { id: uid("rep"), label: `تقرير ${list.length + 1}`, status: "draft", reportType: reportType || "general", createdAt: Date.now(), updatedAt: Date.now(), sections: {}, shared: {}, indicatorHistory: {} };
+  const entry = { id: uid("rep"), label: "تقرير جديد", status: "draft", createdAt: Date.now(), updatedAt: Date.now(), sections: {}, shared: {}, indicatorHistory: {} };
   S.reports[unitId] = [...list, entry];
   dataStore.saveReports(unitId, S.reports[unitId]);
   pushReportMetaToSheet(unitId, entry);
@@ -562,13 +562,13 @@ const SIDEBAR_PAGES = [
   { id: "executive-dashboard", label: "لوحة المعلومات", group: "الإدارة العليا", icon: "home" },
   { id: "executive-summary", label: "الملخص التنفيذي", group: "الإدارة العليا", icon: "document" },
   { id: "executive-final-report", label: "التقرير الإداري النهائي", group: "الإدارة العليا", icon: "layers" },
-  { id: "unit-dashboard", label: "لوحة المعلومات", group: "التقارير", scope: "unit", icon: "home" },
-  { id: "create-report-shortcut", label: "إنشاء تقرير", group: "التقارير", scope: "unit", icon: "plus" },
-  { id: "unit-reports", label: "جميع تقارير الوحدة", group: "التقارير", scope: "unit", icon: "document" },
-  { id: "unit-report", label: "متابعة التقرير المفتوح", group: "التقارير", scope: "unitreport", icon: "pencil" },
-  { id: "unit-settings", label: "الإعدادات", group: "التقارير", scope: "unit", icon: "gauge" },
+  { id: "unit-dashboard", label: "لوحة المعلومات", group: "unit-home", scope: "unit", icon: "home" },
+  { id: "unit-reports", label: "تقارير", group: "unit-home", scope: "unit", icon: "document" },
+  { id: "unit-report", label: "إنشاء تقرير", group: "unit-home", icon: "pencil" },
+  { id: "unit-settings", label: "الإعدادات", group: "unit-home", scope: "unit", icon: "gauge" },
 ];
-const SIDEBAR_GROUPS = ["الرئيسية", "إدارة التقارير", "المستخدمون", "الأقسام", "الوحدات", "المراكز", "الإدارة العليا", "التقارير"];
+const SIDEBAR_GROUPS = ["الرئيسية", "إدارة التقارير", "المستخدمون", "الأقسام", "الوحدات", "المراكز", "الإدارة العليا", "unit-home"];
+const SIDEBAR_GROUP_LABELS = { "unit-home": "الرئيسية" };
 function sidebarNavIcon(key, size, color) {
   const map = { home: iconHome, document: iconDocument, building: iconBuilding, gauge: iconGauge, target: iconTarget, pencil: iconPencil, layers: iconLayers, printer: iconPrinter, plus: iconPlus };
   const fn = map[key] || iconDocument;
@@ -576,26 +576,53 @@ function sidebarNavIcon(key, size, color) {
 }
 
 function computeVisibleSidebarPages() {
-  // The "التقارير" sidebar group (تقاريري / متابعة التقرير المفتوح / عرض كامل / معاينة)
-  // is unit-scoped work, not site administration — admin and department-level
-  // accounts only see it while actually inside a specific unit's pages, not on
-  // their own overview page. A unit's own account always sees only this group.
+  // مجموعة "unit-home" (تُعرض باسم "الرئيسية" لموظفة الوحدة/المركز) خاصة بعمل
+  // الوحدة نفسها، مو إدارة الموقع — مديرة النظام والقسم يشوفونها بس وهم فعليًا
+  // داخل صفحات وحدة معيّنة، مو بصفحتهم الرئيسية.
   const UNIT_SCOPED_VIEWS = ["unit-dashboard", "unit-settings", "unit-reports", "unit-report", "full-report", "report-preview"];
   if (S.isAdmin) {
     // مديرة النظام تشوف كل شي بالموقع — بما فيها صفحات الإدارة العليا للاطلاع.
-    return SIDEBAR_PAGES.filter((p) => p.id !== "department-overview" && (p.group !== "التقارير" || UNIT_SCOPED_VIEWS.includes(S.view)));
+    return SIDEBAR_PAGES.filter((p) => p.id !== "department-overview" && (p.group !== "unit-home" || UNIT_SCOPED_VIEWS.includes(S.view)));
   } else if (S.isDepartmentUser) {
-    return SIDEBAR_PAGES.filter((p) => p.id === "department-overview" || p.id === "all-reports" || (p.group === "التقارير" && UNIT_SCOPED_VIEWS.includes(S.view)));
+    return SIDEBAR_PAGES.filter((p) => p.id === "department-overview" || p.id === "all-reports" || (p.group === "unit-home" && UNIT_SCOPED_VIEWS.includes(S.view)));
   } else if (S.isExecutive) {
     return SIDEBAR_PAGES.filter((p) => p.group === "الإدارة العليا" || p.id === "all-reports");
   }
   // موظفة الوحدة أو المركز: تشوف "تقاريري" + "جميع التقارير" — بدون
   // "الأقسام والوحدات" (ذاك رابط إشرافي خاص بمديرة النظام).
-  return SIDEBAR_PAGES.filter((p) => p.id === "all-reports" || (p.group === "التقارير" && UNIT_SCOPED_VIEWS.includes(S.view)));
+  return SIDEBAR_PAGES.filter((p) => p.id === "all-reports" || (p.group === "unit-home" && UNIT_SCOPED_VIEWS.includes(S.view)));
 }
 
+// عدد التنبيهات: محسوب مباشرة من حالة التقارير — بدون أي تخزين إضافي.
+// مديرة القسم/النظام: عدد التقارير بانتظار مراجعتها. الوحدة/المركز: عدد
+// تقاريرها المحتاجة إجراء منها (بحاجة لتعديل أو استكمال).
+function computeNotificationCount() {
+  if (S.isDepartmentUser) {
+    const units = S.units.filter((u) => u.departmentId === S.currentDepartmentId && u.status === "active");
+    return units.reduce((sum, u) => sum + ensureUnitReportsLoaded(u.id).filter((r) => r.status === "under_review").length, 0);
+  }
+  if (S.isAdmin) {
+    return S.units.reduce((sum, u) => sum + ensureUnitReportsLoaded(u.id).filter((r) => r.status === "under_review").length, 0);
+  }
+  if (!S.isExecutive && S.currentUnitId) {
+    return ensureUnitReportsLoaded(S.currentUnitId).filter((r) => r.status === "returned" || r.status === "needs_completion").length;
+  }
+  return 0;
+}
+// قائمة "إلى من يُرسل" — تُبنى من حسابات القسم/مديرة النظام الموجودة فعليًا
+// بالنظام، وليست قائمة منفصلة تُدار يدويًا.
+function computeReportRecipients(unit) {
+  const list = [];
+  const dept = S.departments.find((d) => d.id === unit.departmentId);
+  if (dept) list.push({ id: `dept:${dept.id}`, name: dept.name, jobTitle: "مديرة القسم", email: dept.email || "" });
+  S.units.filter((u) => u.role === "admin" && u.status === "active").forEach((a) => {
+    list.push({ id: `admin:${a.id}`, name: a.name, jobTitle: "مديرة النظام", email: a.email || "" });
+  });
+  return list;
+}
 function renderMainSidebar(mobile) {
   const visible = computeVisibleSidebarPages();
+  const notifCount = computeNotificationCount();
   const groupsHtml = SIDEBAR_GROUPS.map((g) => {
     const items = visible.filter((p) => p.group === g);
     if (!items.length) return "";
@@ -609,7 +636,7 @@ function renderMainSidebar(mobile) {
     return `
       <div class="nav-group ${isOpen ? "open" : ""}">
         <button class="nav-group-label" data-action="toggle-sidebar-group" data-group="${esc(g)}" style="display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:none;cursor:pointer;padding:4px 12px 8px;">
-          <span style="display:flex;align-items:center;gap:6px;">${sidebarNavIcon(items[0].icon, 13, SUBTLE)}${esc(g)}</span>
+          <span style="display:flex;align-items:center;gap:6px;">${sidebarNavIcon(items[0].icon, 13, SUBTLE)}${esc(SIDEBAR_GROUP_LABELS[g] || g)}</span>
           <span style="display:inline-flex;transition:transform 0.15s;transform:rotate(${isOpen ? "0" : "-90"}deg);">${iconChevronDown(11, SUBTLE)}</span>
         </button>
         ${isOpen ? `<div class="nav-list">
@@ -617,8 +644,8 @@ function renderMainSidebar(mobile) {
             const disabled = (p.scope === "unit" && !S.currentUnitId) || (p.scope === "unitreport" && !(S.currentUnitId && S.currentReportId));
             const active = S.view === p.id;
             const iconColor = disabled ? "#cfc3c8" : active ? "#6b2337" : INK;
-            const isShortcut = p.id === "create-report-shortcut";
-            return `<button class="nav-item ${active ? "active" : ""}" ${disabled ? "disabled" : ""} data-action="${isShortcut ? "create-new-report" : "nav-to"}" ${isShortcut ? "" : `data-view="${p.id}"`}>${sidebarNavIcon(p.icon, 15, iconColor)}<span>${esc(p.label)}</span></button>`;
+            const isCreateEntry = p.id === "unit-report";
+            return `<button class="nav-item ${active ? "active" : ""}" ${disabled ? "disabled" : ""} data-action="${isCreateEntry ? "open-or-create-report" : "nav-to"}" ${isCreateEntry ? "" : `data-view="${p.id}"`}>${sidebarNavIcon(p.icon, 15, iconColor)}<span>${esc(p.label)}</span></button>`;
           }).join("")}
         </div>` : ""}
       </div>`;
@@ -632,10 +659,11 @@ function renderMainSidebar(mobile) {
       <div class="sidebar-head-icons-row">
         <div class="icon-badge">${iconGauge("#6b2337")}</div>
         <div style="display:flex;gap:6px;">
-          <button class="sidebar-bell" title="الإشعارات">${iconBell(15, INK)}</button>
+          <button class="sidebar-bell" title="الإشعارات">${iconBell(15, INK)}${notifCount > 0 ? `<span class="notif-badge">${notifCount > 9 ? "9+" : notifCount}</span>` : ""}</button>
           <button class="icon-btn" data-action="${mobile ? "close-mobile-sidebar" : "close-sidebar"}" title="إغلاق القائمة">${iconX(14, INK)}</button>
         </div>
       </div>
+      <img src="${ASSOCIATION_LOGO}" class="sidebar-logo" alt="جمعية فرقان" />
       <div class="prs-title sidebar-title">منصة التقارير</div>
     </div>
     <div class="sidebar-user-block">
@@ -1368,15 +1396,56 @@ function renderDepartmentOverview() {
   const dept = S.departments.find((d) => d.id === S.currentDepartmentId);
   if (!dept) return `<div class="page-wrap">تعذر إيجاد القسم.</div>`;
   const units = S.units.filter((u) => u.departmentId === dept.id && u.status === "active");
+  const pendingReports = [];
+  units.forEach((u) => {
+    ensureUnitReportsLoaded(u.id).filter((r) => r.status === "under_review").forEach((r) => pendingReports.push({ unit: u, report: r }));
+  });
 
   return `
   <div class="page-wrap"><div class="page-inner">
     ${topBarHtml({ title: dept.name, subtitle: `مرحبًا — ${units.length} وحدة تابعة لهذا القسم`,
       right: S.isAdmin && S.adminPreviewOrigin ? pillBtn("رجوع", { variant: "ghost", icon: iconChevronRight(15, INK), action: "nav-to", data: { view: S.adminPreviewOrigin } }) : pillBtn("خروج", { variant: "danger", icon: iconLogout(15, DANGER), action: "logout" }) })}
+    ${reviewDecisionsSectionHtml(pendingReports)}
     ${units.length === 0 ? `<div class="card" style="text-align:center;color:${SUBTLE};padding:36px;">لا توجد وحدات نشطة تابعة لهذا القسم بعد.</div>` :
       `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">${units.map((u) => unitCardHtml(u, null, latestReportForUnit(u.id))).join("")}</div>`}
     ${deptCurationSectionHtml(dept)}
   </div></div>`;
+}
+
+/* ---- قرارات المراجعة: تظهر بصفحة "قسمي" فقط، بدل داخل محرر الوحدة ---- */
+const REVIEW_DECISIONS = [
+  { id: "approved_clean", label: "معتمد دون ملاحظات", status: "approved" },
+  { id: "approved_edited", label: "معتمد بعد التعديل", status: "approved" },
+  { id: "needs_completion", label: "يُعاد للاستكمال", status: "needs_completion" },
+  { id: "returned", label: "بحاجة إلى تعديل", status: "returned" },
+];
+function reviewDecisionsSectionHtml(pendingReports) {
+  if (!pendingReports.length) return "";
+  return `
+  <div class="card" style="margin-bottom:16px;border:1.5px solid ${ROSE};">
+    <div style="font-size:14px;font-weight:800;margin-bottom:12px;">قرارات المراجعة (${pendingReports.length})</div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      ${pendingReports.map(({ unit, report }) => {
+        const key = `${unit.id}:${report.id}`;
+        const chosen = S.ui.reviewDecisionChoice?.[key] || "";
+        return `
+        <div class="card" style="background:${GRAY_BG};">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+            <div style="font-size:13px;font-weight:700;cursor:pointer;" data-action="open-report" data-unit-id="${esc(unit.id)}" data-report-id="${esc(report.id)}">${esc(unit.name)} — ${esc(report.label)}</div>
+            <span style="font-size:10.5px;color:${SUBTLE};">اطّلعي على التقرير كاملًا قبل اتخاذ القرار</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+            <select class="input" style="flex:1;min-width:200px;" data-action="set-review-decision-choice" data-unit-id="${esc(unit.id)}" data-report-id="${esc(report.id)}">
+              <option value="">اختاري قرار المراجعة...</option>
+              ${REVIEW_DECISIONS.map((d) => `<option value="${d.id}" ${chosen === d.id ? "selected" : ""}>${esc(d.label)}</option>`).join("")}
+            </select>
+          </div>
+          <textarea id="review-notes-${esc(key)}" class="input" style="width:100%;min-height:60px;margin-bottom:8px;" placeholder="ملاحظات نصية (اختياري)..."></textarea>
+          ${pillBtn("إرسال القرار", { icon: iconCheckCircle(14, "#fff"), action: "submit-department-review-decision", disabled: !chosen, data: { unitId: unit.id, reportId: report.id } })}
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
 }
 
 /* ---- اعتماد القسم لأبرز النتائج: تُستخدم لاحقًا لترتيب أولوية العناصر
@@ -1948,7 +2017,6 @@ function renderUnitReportsHub() {
   const filter = S.ui.unitReportsFilter || "all";
   const typeFilter = S.ui.unitReportsTypeFilter || "";
   const yearFilter = S.ui.unitReportsYearFilter || "";
-  const periodFilter = S.ui.unitReportsPeriodFilter || "";
 
   const tabs = [
     { id: "all", label: "الكل" },
@@ -1969,32 +2037,17 @@ function renderUnitReportsHub() {
   let filtered = filter === "all" ? list.filter((r) => !isReportArchived(r))
     : filter === "archived" ? list.filter((r) => isReportArchived(r))
     : list.filter((r) => r.status === filter && !isReportArchived(r));
-  if (typeFilter) filtered = filtered.filter((r) => (r.reportType || "general") === typeFilter);
+  if (typeFilter) filtered = filtered.filter((r) => (r.sections?.basic?.data?.periodType || "") === typeFilter);
   if (yearFilter) filtered = filtered.filter((r) => (r.sections?.basic?.data?.hijriYear || "") === yearFilter);
-  if (periodFilter) filtered = filtered.filter((r) => (r.sections?.basic?.data?.periodType || "") === periodFilter);
   const sorted = [...filtered].sort((a, b) => b.createdAt - a.createdAt);
 
   const yearOptions = [...new Set(list.map((r) => r.sections?.basic?.data?.hijriYear).filter(Boolean))];
-  const periodOptions = [...new Set(list.map((r) => r.sections?.basic?.data?.periodType).filter(Boolean))];
-
-  const typePicker = S.ui.showCreateReportPicker ? `
-    <div class="card" style="margin-bottom:16px;border:1.5px solid ${ROSE};">
-      <div style="font-size:13px;font-weight:800;margin-bottom:10px;">اختاري نوع التقرير</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        ${REPORT_TYPES.map((t) => `<button class="pill-btn ${S.ui.newReportType === t.id ? "pill-primary" : "pill-ghost"}" data-action="pick-report-type" data-type="${t.id}">${reportTypeIconHtml(t.id, 14, S.ui.newReportType === t.id ? "#fff" : ROSE)} ${esc(t.label)}</button>`).join("")}
-      </div>
-      <div style="display:flex;gap:8px;">
-        ${pillBtn("إنشاء التقرير", { icon: iconPlus(15, "#fff"), action: "confirm-create-report" })}
-        ${pillBtn("إلغاء", { variant: "ghost", action: "cancel-create-report-picker" })}
-      </div>
-    </div>` : "";
 
   return `
   <div class="page-wrap"><div class="page-inner">
     ${topBarHtml({ title: "نظام توثيق الأداء", subtitle: dept ? `${unit.name} — ${dept.name}` : unit.name,
       backAction: S.isAdmin && S.adminPreviewOrigin ? "nav-to" : S.isAdmin ? "nav-back-admin" : S.isDepartmentUser ? "nav-back-department" : "",
-      backData: S.isAdmin && S.adminPreviewOrigin ? { view: S.adminPreviewOrigin } : undefined,
-      right: pillBtn("إنشاء تقرير", { icon: iconPlus(15, "#fff"), action: "create-new-report" }) })}
+      backData: S.isAdmin && S.adminPreviewOrigin ? { view: S.adminPreviewOrigin } : undefined })}
 
     <div class="hero-banner">
       <img class="hero-banner-bg" src="hero-bg.jpg" alt="" />
@@ -2005,8 +2058,6 @@ function renderUnitReportsHub() {
       </div>
     </div>
 
-    ${typePicker}
-
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       ${tabs.map((t) => `<button class="pill-btn ${filter === t.id ? "pill-primary" : "pill-ghost"}" data-action="set-unit-reports-filter" data-filter="${t.id}">${esc(t.label)} (${countFor(t.id)})</button>`).join("")}
     </div>
@@ -2014,14 +2065,13 @@ function renderUnitReportsHub() {
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <input id="unit-reports-search" class="input" style="flex:2;min-width:180px;" placeholder="ابحثي باسم التقرير..." />
-        <select class="input" style="flex:1;min-width:120px;" data-action="filter-unit-reports-type"><option value="">النوع: الكل</option>${REPORT_TYPES.map((t) => `<option value="${t.id}" ${typeFilter === t.id ? "selected" : ""}>${esc(t.label)}</option>`).join("")}</select>
+        <select class="input" style="flex:1;min-width:120px;" data-action="filter-unit-reports-type"><option value="">النوع: الكل</option>${PERIOD_TYPES.map((p) => `<option value="${esc(p)}" ${typeFilter === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
         <select class="input" style="flex:1;min-width:110px;" data-action="filter-unit-reports-year"><option value="">السنة: الكل</option>${yearOptions.map((y) => `<option value="${esc(y)}" ${yearFilter === y ? "selected" : ""}>${esc(y)}</option>`).join("")}</select>
-        <select class="input" style="flex:1;min-width:110px;" data-action="filter-unit-reports-period"><option value="">الفترة: الكل</option>${periodOptions.map((p) => `<option value="${esc(p)}" ${periodFilter === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
       </div>
     </div>
     <div style="font-size:12px;color:${SUBTLE};margin-bottom:10px;">عدد التقارير: ${sorted.length}</div>
 
-    ${sorted.length === 0 ? `<div class="card" style="text-align:center;color:${SUBTLE};padding:36px;">لا توجد تقارير مطابقة${filter === "all" ? " — ابدئي بإنشاء تقرير جديد من الزر أعلاه." : "."}</div>` :
+    ${sorted.length === 0 ? `<div class="card" style="text-align:center;color:${SUBTLE};padding:36px;">لا توجد تقارير مطابقة${filter === "all" ? " — ابدئي بإنشاء تقرير جديد من الشريط الجانبي." : "."}</div>` :
       `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;" id="unit-reports-grid">${sorted.map((entry) => `<div data-search="${esc((entry.label || "").toLowerCase())}">${reportCardHtml(unit, entry)}</div>`).join("")}</div>`}
   </div></div>`;
 }
@@ -2098,6 +2148,7 @@ function renderDepartmentsManage() {
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <input class="input" id="new-sysadmin-name" style="flex:2;min-width:160px;" placeholder="اسم الحساب" value="${esc(ui.newSysadminName || "")}" />
           <input class="input" id="new-sysadmin-password" style="flex:1;min-width:120px;" placeholder="كلمة المرور" value="${esc(ui.newSysadminPassword || "")}" />
+          <input class="input" id="new-sysadmin-email" style="flex:1;min-width:160px;" type="email" placeholder="الإيميل (اختياري)" value="${esc(ui.newSysadminEmail || "")}" />
           ${pillBtn("إضافة حساب مديرة نظام", { icon: iconPlus(15, "#fff"), action: "add-sysadmin" })}
         </div>
       </div>`,
@@ -2111,6 +2162,7 @@ function renderDepartmentsManage() {
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <input class="input" id="new-dept-name" style="flex:2;min-width:160px;" placeholder="اسم القسم الجديد" value="${esc(ui.newDeptName || "")}" />
           <input class="input" id="new-dept-password" style="flex:1;min-width:120px;" placeholder="كلمة المرور (اختياري)" value="${esc(ui.newDeptPassword || "")}" />
+          <input class="input" id="new-dept-email" style="flex:1;min-width:160px;" type="email" placeholder="الإيميل (اختياري)" value="${esc(ui.newDeptEmail || "")}" />
           ${pillBtn("إضافة قسم", { icon: iconPlus(15, "#fff"), action: "add-department" })}
         </div>
       </div>`,
@@ -2585,13 +2637,23 @@ function trySaveSection(status) {
 function persistSection(sectionId, data, status) {
   const unitId = S.currentUnitId;
   const current = getCurrentReportEntry();
-  if (!current) return;
+  if (!current) {
+    // دفاعيًا: بدل ما يفشل الحفظ بصمت (يبدو للمستخدمة إن الزر ما يستجيب)، نبيّن خطأ واضح.
+    S.sectionSaveError = "تعذّر حفظ هذا القسم — التقرير الحالي غير موجود. أعيدي فتح التقرير من صفحة التقارير.";
+    return;
+  }
   const updatedSections = { ...current.sections, [sectionId]: { status, data, updatedAt: Date.now() } };
   let updatedShared = current.shared || {};
+  let updatedLabel = current.label;
   if (sectionId === "basic") {
     updatedShared = { ...updatedShared, reportingEntityType: data.reportingEntityType || "", entityName: data.entityName || "",
       periodType: data.periodType || "", hijriYear: data.hijriYear || "", month: data.month || "", term: data.term || "",
       preparerName: data.preparerName || "", preparerTitle: data.preparerTitle || "", managerName: data.managerName || "" };
+    // تسمية التقرير تلقائيًا حسب نوع الفترة، بدل "تقرير 1، 2" العام — فقط
+    // إذا كان الاسم لسا افتراضيًا (ما بدّلته الموظفة يدويًا).
+    if (data.periodType && (current.label === "تقرير جديد" || /^تقرير \d+$/.test(current.label || ""))) {
+      updatedLabel = `تقرير ${data.periodType}`;
+    }
   }
   let updatedIndicatorHistory = current.indicatorHistory || {};
   if (sectionId === "kpi") {
@@ -2604,13 +2666,29 @@ function persistSection(sectionId, data, status) {
     });
     updatedIndicatorHistory = nextHistory;
   }
-  const updatedEntry = { ...current, sections: updatedSections, shared: updatedShared, indicatorHistory: updatedIndicatorHistory, updatedAt: Date.now(), lastSectionId: sectionId };
-  // saveReportEntry already pushes the whole updated report (sections included)
-  // to Supabase in one call — no separate per-section push needed like the
-  // Google Sheets version required.
+  const updatedEntry = { ...current, label: updatedLabel, sections: updatedSections, shared: updatedShared, indicatorHistory: updatedIndicatorHistory, updatedAt: Date.now(), lastSectionId: sectionId };
+  // saveReportEntry يرفع التقرير كامل (بكل أقسامه) لـ Supabase دفعة وحدة —
+  // ما يحتاج استدعاء إضافي لكل قسم على حدة زي أسلوب جوجل شيت.
   saveReportEntry(unitId, updatedEntry);
 }
 
+function sendReportPickerHtml(unit) {
+  const recipients = computeReportRecipients(unit);
+  const chosen = S.ui.sendReportRecipientId || "";
+  return `
+  <div class="card" style="margin-top:16px;border:1.5px solid ${ROSE};">
+    <div style="font-size:13px;font-weight:800;margin-bottom:10px;">إرسال التقرير — إلى من يُرسل؟</div>
+    ${recipients.length === 0 ? `<div class="hint bad">لا يوجد قسم أو حساب مديرة نظام لإرسال التقرير إليه.</div>` : `
+    <select class="input" style="width:100%;margin-bottom:10px;" data-action="pick-report-recipient">
+      <option value="">اختاري الجهة المستلمة...</option>
+      ${recipients.map((r) => `<option value="${esc(r.id)}" ${chosen === r.id ? "selected" : ""}>${esc(r.name)} — ${esc(r.jobTitle)}${r.email ? ` (${esc(r.email)})` : ""}</option>`).join("")}
+    </select>`}
+    <div style="display:flex;gap:8px;">
+      ${pillBtn("تأكيد الإرسال", { icon: iconCheckCircle(14, "#fff"), action: "confirm-send-report", disabled: !chosen })}
+      ${pillBtn("إلغاء", { variant: "ghost", action: "cancel-send-report" })}
+    </div>
+  </div>`;
+}
 function sectionEditorHtml(unit, report) {
   const sectionIndex = SECTIONS.findIndex((s) => s.id === S.activeSectionId);
   const section = SECTIONS[sectionIndex];
@@ -2645,22 +2723,17 @@ function sectionEditorHtml(unit, report) {
     ${sharedBar}
     ${fieldsHtml}
     ${S.sectionSaveError ? `<div class="error-box" style="margin-top:16px;">${esc(S.sectionSaveError)}</div>` : ""}
+    ${S.ui.showSendPicker ? sendReportPickerHtml(unit) : ""}
     <div class="section-editor-nav">
       ${pillBtn("السابق", { variant: "ghost", action: "section-prev", disabled: sectionIndex <= 0 })}
       <div style="flex:1;">${pillBtn(S.sectionSaveStatus || "حفظ كمسودة", { variant: "soft", icon: iconSave(15, GREEN), action: "section-save-draft" })}</div>
       ${sectionIndex >= SECTIONS.length - 1
         ? (report.status === "draft" || report.status === "returned" || report.status === "needs_completion"
-            ? pillBtn("إرسال للمراجعة", { icon: iconCheckCircle(15, "#fff"), action: "submit-report-for-review" })
+            ? pillBtn("إرسال للمراجعة", { icon: iconCheckCircle(15, "#fff"), action: "start-send-report" })
             : report.status === "under_review"
-            ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">
-                 ${pillBtn("اعتماد كمكتمل", { icon: iconCheckCircle(15, "#fff"), action: "mark-report-completed" })}
-                 ${(S.isAdmin || S.isDepartmentUser) ? pillBtn("طلب استكمال", { variant: "soft", icon: iconDocument(14, "#c9863a"), action: "request-report-completion" }) : ""}
-                 ${(S.isAdmin || S.isDepartmentUser) ? pillBtn("إعادة للتعديل", { variant: "danger", icon: iconX(14, DANGER), action: "return-report-for-revision" }) : ""}
-               </div>`
+            ? pillBtn("بانتظار مراجعة القسم", { variant: "soft", icon: iconCheckCircle(15, GOLD), disabled: true })
             : report.status === "completed"
-            ? ((S.isAdmin || S.isDepartmentUser)
-                ? pillBtn("اعتماد التقرير", { icon: iconCheckCircle(15, "#fff"), action: "approve-report" })
-                : pillBtn("مكتمل — بانتظار الاعتماد", { variant: "soft", icon: iconCheckCircle(15, GREEN), disabled: true }))
+            ? pillBtn("مكتمل — بانتظار الاعتماد", { variant: "soft", icon: iconCheckCircle(15, GREEN), disabled: true })
             : pillBtn("معتمد ✓", { variant: "soft", icon: iconCheckCircle(15, "#6b3fa0"), disabled: true }))
         : `<button class="next-btn" data-action="section-next">التالي ${iconChevronLeft(15, "#fff")}</button>`}
     </div>
@@ -3728,6 +3801,13 @@ function attachFormListeners() {
     if (el.dataset && el.dataset.action === "filter-all-reports-dept") { S.ui.allReportsDept = el.value; render(); return; }
     if (el.dataset && el.dataset.action === "filter-unit-reports-type") { S.ui.unitReportsTypeFilter = el.value; render(); return; }
     if (el.dataset && el.dataset.action === "filter-unit-reports-year") { S.ui.unitReportsYearFilter = el.value; render(); return; }
+    if (el.dataset && el.dataset.action === "pick-report-recipient") { S.ui.sendReportRecipientId = el.value; render(); return; }
+    if (el.dataset && el.dataset.action === "set-review-decision-choice") {
+      const key = `${el.dataset.unitId}:${el.dataset.reportId}`;
+      S.ui.reviewDecisionChoice = { ...(S.ui.reviewDecisionChoice || {}), [key]: el.value };
+      render();
+      return;
+    }
     if (el.dataset && el.dataset.action === "filter-unit-reports-period") { S.ui.unitReportsPeriodFilter = el.value; render(); return; }
     if (el.dataset && el.dataset.action === "filter-all-reports-unit") { S.ui.allReportsUnit = el.value; render(); return; }
     if (el.dataset && el.dataset.action === "filter-all-reports-date-from") { S.ui.allReportsDateFrom = el.value; render(); return; }
@@ -3799,6 +3879,7 @@ function attachClickListener() {
     const action = btn.dataset.action;
     const ds = btn.dataset;
 
+    try {
     switch (action) {
       /* ---------- navigation & shell ---------- */
       case "nav-to": {
@@ -3861,6 +3942,23 @@ function attachClickListener() {
       case "confirm-delete-report": S.ui.confirmDeleteReportId = ds.id; render(); break;
       case "cancel-delete-report": S.ui.confirmDeleteReportId = null; render(); break;
       case "toggle-report-notes": S.ui.showReportNotesId = S.ui.showReportNotesId === ds.id ? null : ds.id; render(); break;
+      case "submit-department-review-decision": {
+        // تحقق فعلي من الصلاحية على مستوى البيانات: قرار المراجعة فقط لمديرة القسم أو النظام.
+        if (!(S.isDepartmentUser || S.isAdmin) || !isUnitInUserScope(ds.unitId)) break;
+        const key = `${ds.unitId}:${ds.reportId}`;
+        const choiceId = S.ui.reviewDecisionChoice?.[key];
+        const decision = REVIEW_DECISIONS.find((d) => d.id === choiceId);
+        if (!decision) break;
+        const entry = getReportEntry(ds.unitId, ds.reportId);
+        if (!entry) break;
+        const notesInput = document.getElementById(`review-notes-${key}`);
+        const managerNotes = notesInput ? notesInput.value.trim() : "";
+        const updatedSections = { ...entry.sections, review: { ...(entry.sections?.review || {}), data: { ...(entry.sections?.review?.data || {}), managerNotesText: managerNotes || (entry.sections?.review?.data?.managerNotesText || ""), reviewDecisionLabel: decision.label } } };
+        saveReportEntry(ds.unitId, { ...entry, sections: updatedSections, status: decision.status, updatedAt: Date.now() });
+        if (S.ui.reviewDecisionChoice) delete S.ui.reviewDecisionChoice[key];
+        render();
+        break;
+      }
       case "delete-report": {
         const unitId = ds.unitId, reportId = ds.reportId;
         S.reports[unitId] = dataStore.deleteOneReport(unitId, reportId);
@@ -3898,27 +3996,13 @@ function attachClickListener() {
         break;
       }
       case "set-unit-reports-filter": S.ui.unitReportsFilter = ds.filter; render(); break;
-      case "create-new-report": {
-        // نعرض اختيار نوع التقرير أولًا بدل الإنشاء الفوري.
-        S.view = "unit-reports";
-        S.ui.showCreateReportPicker = true;
-        S.ui.newReportType = "general";
-        render();
-        break;
-      }
-      case "pick-report-type": {
-        S.ui.newReportType = ds.type;
-        render();
-        break;
-      }
-      case "cancel-create-report-picker": {
-        S.ui.showCreateReportPicker = false;
-        render();
-        break;
-      }
-      case "confirm-create-report": {
-        const entry = createNewReportEntry(S.currentUnitId, S.ui.newReportType || "general");
-        S.ui.showCreateReportPicker = false;
+      case "open-or-create-report": {
+        // إنشاء تقرير: تكمل آخر تقرير لسا شغّالة عليه (مسودة/بحاجة لتعديل أو استكمال)،
+        // أو تنشئ تقرير جديد فورًا بدون أي اختيار وسيط.
+        const list = ensureUnitReportsLoaded(S.currentUnitId);
+        const openStatuses = ["draft", "returned", "needs_completion"];
+        const inProgress = [...list].reverse().find((r) => openStatuses.includes(r.status));
+        const entry = inProgress || createNewReportEntry(S.currentUnitId);
         S.currentReportId = entry.id; S.view = "unit-report"; S.openPhaseId = null; S.activeSectionId = null;
         render();
         break;
@@ -3938,9 +4022,26 @@ function attachClickListener() {
         render();
         break;
       }
-      case "submit-report-for-review": {
+      case "start-send-report": {
+        S.ui.showSendPicker = true;
+        S.ui.sendReportRecipientId = "";
+        render();
+        break;
+      }
+      case "cancel-send-report": {
+        S.ui.showSendPicker = false;
+        render();
+        break;
+      }
+      case "confirm-send-report": {
         const entry = getCurrentReportEntry();
-        if (entry) saveReportEntry(S.currentUnitId, { ...entry, status: "under_review", updatedAt: Date.now() });
+        if (!entry) break;
+        const unit = S.units.find((u) => u.id === S.currentUnitId);
+        const recipients = computeReportRecipients(unit);
+        const recipient = recipients.find((r) => r.id === S.ui.sendReportRecipientId);
+        if (!recipient) break;
+        saveReportEntry(S.currentUnitId, { ...entry, status: "under_review", sentTo: recipient, sentAt: Date.now(), updatedAt: Date.now() });
+        S.ui.showSendPicker = false;
         render();
         break;
       }
@@ -4000,10 +4101,11 @@ function attachClickListener() {
         const nameEl = document.getElementById("new-dept-name");
         const name = (nameEl.value || "").trim();
         const password = (document.getElementById("new-dept-password").value || "").trim();
+        const email = (document.getElementById("new-dept-email").value || "").trim();
         if (!name) break;
-        S.departments = [...S.departments, { id: uid("dept"), name, password, status: "active", createdAt: Date.now() }];
+        S.departments = [...S.departments, { id: uid("dept"), name, password, email, status: "active", createdAt: Date.now() }];
         dataStore.saveDepartments(S.departments);
-        S.ui.newDeptName = ""; S.ui.newDeptPassword = "";
+        S.ui.newDeptName = ""; S.ui.newDeptPassword = ""; S.ui.newDeptEmail = "";
         render();
         break;
       }
@@ -4077,10 +4179,11 @@ function attachClickListener() {
       case "add-sysadmin": {
         const name = (document.getElementById("new-sysadmin-name").value || "").trim();
         const password = (document.getElementById("new-sysadmin-password").value || "").trim();
+        const email = (document.getElementById("new-sysadmin-email").value || "").trim();
         if (!name) break;
-        S.units = [...S.units, { id: uid("admin"), name, password, role: "admin", status: "active", departmentId: "", createdAt: Date.now() }];
+        S.units = [...S.units, { id: uid("admin"), name, password, email, role: "admin", status: "active", departmentId: "", createdAt: Date.now() }];
         dataStore.saveUnits(S.units);
-        S.ui.newSysadminName = ""; S.ui.newSysadminPassword = "";
+        S.ui.newSysadminName = ""; S.ui.newSysadminPassword = ""; S.ui.newSysadminEmail = "";
         render();
         break;
       }
@@ -4182,6 +4285,12 @@ function attachClickListener() {
         break;
       }
       default: handleDynamicGoalAction(action, ds) || handleReportEditorAction(action, ds, e) ;
+    }
+    } catch (err) {
+      // شبكة أمان: بدل ما يبقى الزر "ميت" بصمت لو صار خطأ غير متوقع، نبيّنه ونحاول نكمل العرض.
+      console.error("Action failed:", action, err);
+      S.sectionSaveError = S.activeSectionId ? "صار خطأ غير متوقع أثناء الحفظ. حاولي مرة ثانية، ولو تكررت المشكلة تواصلي مع الدعم الفني." : "";
+      try { render(); } catch (e2) { console.error("Render also failed:", e2); }
     }
   });
 }
@@ -4363,6 +4472,7 @@ function trySaveSectionWithStatus(status) {
   }
   S.sectionSaveError = "";
   persistSection(S.activeSectionId, S.sectionDraft, status);
+  if (S.sectionSaveError) return false;
   return true;
 }
 
